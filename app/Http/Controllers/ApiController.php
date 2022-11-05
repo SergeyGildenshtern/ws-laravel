@@ -213,16 +213,16 @@ class ApiController extends Controller
                     "availability" => "null"
                 ];
             }
-
-            $response = (object) [
-              "data" => (object) [
-                  "flights_to" => $flight_to,
-                  "flights_back" => $flight_back
-              ]
-            ];
-
-            return response()->json($response, 200);
         }
+
+        $response = (object) [
+            "data" => (object) [
+                "flights_to" => $flight_to,
+                "flights_back" => $flight_back
+            ]
+        ];
+
+        return response()->json($response, 200);
     }
 
     public function booking(Request $request) {
@@ -245,7 +245,9 @@ class ApiController extends Controller
                 "document_number" => "required|digits:10",
             ]);
 
-            $errors[$i] = $validator->errors();
+            if ($validator->fails()) {
+                $errors[$i] = $validator->errors();
+            }
         }
 
         if (count($errors) != 0) {
@@ -266,9 +268,9 @@ class ApiController extends Controller
         $id = DB::table("bookings")
             ->insertGetId([
                 "flight_from" => $data->flight_from["id"],
-                "flight_back" => $data->flight_back["id"],
+                "flight_back" => property_exists($data, 'flight_back') ? $data->flight_back["id"] : null,
                 "date_from" => $data->flight_from["date"],
-                "date_back" => $data->flight_back["date"],
+                "date_back" => property_exists($data, 'flight_back') ? $data->flight_back["date"] : null,
                 "code" => $code,
                 "created_at" => $ts,
                 "updated_at" => $ts
@@ -321,9 +323,12 @@ class ApiController extends Controller
             ->where("id", $booking->flight_from)
             ->first();
 
-        $flights_back = DB::table("flights")
-            ->where("id", $booking->flight_back)
-            ->first();
+        $flights_back = null;
+        if ($booking->flight_back != null) {
+            $flights_back = DB::table("flights")
+                ->where("id", $booking->flight_back)
+                ->first();
+        }
 
         $airport_from = DB::table("airports")
             ->where("id", $flights_from->from_id)
@@ -338,58 +343,63 @@ class ApiController extends Controller
             ->select("id", "first_name", "last_name", "birth_date", "document_number", "place_from", "place_back")
             ->get();
 
-        $allcost = ($flights_from->cost + $flights_back->cost) * count($passengers);
+        $allcost = ($flights_from->cost + ($flights_back != null ? $flights_back->cost : 0)) * count($passengers);
+
+        $flights = [
+            "0" => (object)[
+                "flight_id" => $flights_from->id,
+                "flight_code" => $flights_from->flight_code,
+                "flight_id" => $flights_from->id,
+                "flight_code" => $flights_from->flight_code,
+                "from" => (object)[
+                    "city" => $airport_from->city,
+                    "airport" => $airport_from->name,
+                    "iata" => $airport_from->iata,
+                    "date" => $booking->date_from,
+                    "time" => $flights_from->time_from
+                ],
+                "to" => (object)[
+                    "city" => $airport_to->city,
+                    "airport" => $airport_to->name,
+                    "iata" => $airport_to->iata,
+                    "date" => $booking->date_from,
+                    "time" => $flights_from->time_to
+                ],
+                "cost" => $flights_from->cost,
+                "availability" => "null"
+            ]
+        ];
+
+        if ($flights_back != null) {
+            $flights[] = (object) [
+                "flight_id" => $flights_back->id,
+                "flight_code" => $flights_back->flight_code,
+                "flight_id" => $flights_back->id,
+                "flight_code" => $flights_back->flight_code,
+                "from" => (object)[
+                    "city" => $airport_to->city,
+                    "airport" => $airport_to->name,
+                    "iata" => $airport_to->iata,
+                    "date" => $booking->date_back,
+                    "time" => $flights_back->time_from
+                ],
+                "to" => (object)[
+                    "city" => $airport_from->city,
+                    "airport" => $airport_from->name,
+                    "iata" => $airport_from->iata,
+                    "date" => $booking->date_back,
+                    "time" => $flights_back->time_to
+                ],
+                "cost" => $flights_back->cost,
+                "availability" => "null"
+            ];
+        }
 
         $response = (object)[
             "data" => (object)[
                 "code" => $code,
                 "cost" => $allcost,
-                "flights" => [
-                    "0" => (object)[
-                        "flight_id" => $flights_from->id,
-                        "flight_code" => $flights_from->flight_code,
-                        "flight_id" => $flights_from->id,
-                        "flight_code" => $flights_from->flight_code,
-                        "from" => (object)[
-                            "city" => $airport_from->city,
-                            "airport" => $airport_from->name,
-                            "iata" => $airport_from->iata,
-                            "date" => $booking->date_from,
-                            "time" => $flights_from->time_from
-                        ],
-                        "to" => (object)[
-                            "city" => $airport_to->city,
-                            "airport" => $airport_to->name,
-                            "iata" => $airport_to->iata,
-                            "date" => $booking->date_from,
-                            "time" => $flights_from->time_to
-                        ],
-                        "cost" => $flights_from->cost,
-                        "availability" => "null"
-                    ],
-                    "1" => (object)[
-                        "flight_id" => $flights_back->id,
-                        "flight_code" => $flights_back->flight_code,
-                        "flight_id" => $flights_back->id,
-                        "flight_code" => $flights_back->flight_code,
-                        "from" => (object)[
-                            "city" => $airport_to->city,
-                            "airport" => $airport_to->name,
-                            "iata" => $airport_to->iata,
-                            "date" => $booking->date_back,
-                            "time" => $flights_back->time_from
-                        ],
-                        "to" => (object)[
-                            "city" => $airport_from->city,
-                            "airport" => $airport_from->name,
-                            "iata" => $airport_from->iata,
-                            "date" => $booking->date_back,
-                            "time" => $flights_back->time_to
-                        ],
-                        "cost" => $flights_back->cost,
-                        "availability" => "null"
-                    ],
-                ],
+                "flights" => $flights,
                 "passengers" => $passengers
             ]
         ];
@@ -424,7 +434,9 @@ class ApiController extends Controller
                     "passenger_id" => $place_from[$i]->id,
                     "place" => $place_from[$i]->place_from
                 ];
+            }
 
+            for($i = 0; $i < count($place_back); $i++) {
                 $occ_back[] = (object)[
                     "passenger_id" => $place_back[$i]->id,
                     "place" => $place_back[$i]->place_back
@@ -474,11 +486,10 @@ class ApiController extends Controller
                 ->first();
 
             if($booking->id != $passenger->booking_id) {
-                // Составление обьекта отрицательного ответа
                 $errors = (object)[
                     "error" => (object)[
                         "code" => 403,
-                        "message" => "Passenger does nt apply to booking"
+                        "message" => "Passenger does not apply to booking"
                     ]
                 ];
 
@@ -487,10 +498,13 @@ class ApiController extends Controller
 
             $col = $type == "from" ? "place_from" :  "place_back";
             $pass = DB::table("passengers")
-                ->where($col, $seat)
+                ->where([
+                    ["booking_id", $booking->id],
+                    [$col, $seat]
+                ])
                 ->get();
 
-            if($pass == []) {
+            if($pass->isEmpty()) {
                 DB::table("passengers")
                     ->where("id", $id)
                     ->update([
@@ -568,9 +582,12 @@ class ApiController extends Controller
                     ->where("id", $booking->flight_from)
                     ->first();
 
-                $flights_back = DB::table("flights")
-                    ->where("id", $booking->flight_back)
-                    ->first();
+                $flights_back = null;
+                if ($booking->flight_back != null) {
+                    $flights_back = DB::table("flights")
+                        ->where("id", $booking->flight_back)
+                        ->first();
+                }
 
                 $airport_from = DB::table("airports")
                     ->where("id", $flights_from->from_id)
@@ -585,57 +602,62 @@ class ApiController extends Controller
                     ->select("id", "first_name", "last_name", "birth_date", "document_number", "place_from", "place_back")
                     ->get();
 
-                $allcost = ($flights_from->cost + $flights_back->cost) * count($passengers);
+                $allcost = ($flights_from->cost + ($flights_back != null ? $flights_back->cost : 0)) * count($passengers);
+
+                $flights = [
+                    "0" => (object)[
+                        "flight_id" => $flights_from->id,
+                        "flight_code" => $flights_from->flight_code,
+                        "flight_id" => $flights_from->id,
+                        "flight_code" => $flights_from->flight_code,
+                        "from" => (object)[
+                            "city" => $airport_from->city,
+                            "airport" => $airport_from->name,
+                            "iata" => $airport_from->iata,
+                            "date" => $booking->date_from,
+                            "time" => $flights_from->time_from
+                        ],
+                        "to" => (object)[
+                            "city" => $airport_to->city,
+                            "airport" => $airport_to->name,
+                            "iata" => $airport_to->iata,
+                            "date" => $booking->date_from,
+                            "time" => $flights_from->time_to
+                        ],
+                        "cost" => $flights_from->cost,
+                        "availability" => "null"
+                    ]
+                ];
+
+                if ($flights_back != null) {
+                    $flights[] = (object) [
+                        "flight_id" => $flights_back->id,
+                        "flight_code" => $flights_back->flight_code,
+                        "flight_id" => $flights_back->id,
+                        "flight_code" => $flights_back->flight_code,
+                        "from" => (object)[
+                            "city" => $airport_to->city,
+                            "airport" => $airport_to->name,
+                            "iata" => $airport_to->iata,
+                            "date" => $booking->date_back,
+                            "time" => $flights_back->time_from
+                        ],
+                        "to" => (object)[
+                            "city" => $airport_from->city,
+                            "airport" => $airport_from->name,
+                            "iata" => $airport_from->iata,
+                            "date" => $booking->date_back,
+                            "time" => $flights_back->time_to
+                        ],
+                        "cost" => $flights_back->cost,
+                        "availability" => "null"
+                    ];
+                }
 
                 $items[] = (object)[
                     "code" => $booking->code,
                     "cost" => $allcost,
-                    "flights" => [
-                        "0" => (object)[
-                            "flight_id" => $flights_from->id,
-                            "flight_code" => $flights_from->flight_code,
-                            "flight_id" => $flights_from->id,
-                            "flight_code" => $flights_from->flight_code,
-                            "from" => (object)[
-                                "city" => $airport_from->city,
-                                "airport" => $airport_from->name,
-                                "iata" => $airport_from->iata,
-                                "date" => $booking->date_from,
-                                "time" => $flights_from->time_from
-                            ],
-                            "to" => (object)[
-                                "city" => $airport_to->city,
-                                "airport" => $airport_to->name,
-                                "iata" => $airport_to->iata,
-                                "date" => $booking->date_from,
-                                "time" => $flights_from->time_to
-                            ],
-                            "cost" => $flights_from->cost,
-                            "availability" => "null"
-                        ],
-                        "1" => (object)[
-                            "flight_id" => $flights_back->id,
-                            "flight_code" => $flights_back->flight_code,
-                            "flight_id" => $flights_back->id,
-                            "flight_code" => $flights_back->flight_code,
-                            "from" => (object)[
-                                "city" => $airport_to->city,
-                                "airport" => $airport_to->name,
-                                "iata" => $airport_to->iata,
-                                "date" => $booking->date_back,
-                                "time" => $flights_back->time_from
-                            ],
-                            "to" => (object)[
-                                "city" => $airport_from->city,
-                                "airport" => $airport_from->name,
-                                "iata" => $airport_from->iata,
-                                "date" => $booking->date_back,
-                                "time" => $flights_back->time_to
-                            ],
-                            "cost" => $flights_back->cost,
-                            "availability" => "null"
-                        ],
-                    ],
+                    "flights" => $flights,
                     "passengers" => $passengers
                 ];
             }
